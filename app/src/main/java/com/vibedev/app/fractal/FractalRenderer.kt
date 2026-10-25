@@ -18,13 +18,15 @@ class RenderedFrame(
     val screenWidth: Int,
     val screenHeight: Int,
     val pixelStep: Int,
+    val stats: RenderStats,
 )
 
-/** Draws a fractal into a bitmap using all CPU cores. Cancels promptly when the view changes. */
+/** Draws a prepared fractal into a bitmap using all CPU cores. Cancels promptly when the view changes. */
 class FractalRenderer(private val palette: ColorPalette) {
 
     suspend fun render(
         fractal: Fractal,
+        plan: PerturbationPlan,
         viewport: Viewport,
         screenWidth: Int,
         screenHeight: Int,
@@ -33,29 +35,35 @@ class FractalRenderer(private val palette: ColorPalette) {
         val w = (screenWidth + pixelStep - 1) / pixelStep
         val h = (screenHeight + pixelStep - 1) / pixelStep
         val pixels = IntArray(w * h)
-        val maxIter = viewport.iterationBudget()
+        val scale = viewport.unitsPerPixel(screenWidth, screenHeight)
         val half = pixelStep / 2.0
         val bands = Runtime.getRuntime().availableProcessors() * 4
 
-        coroutineScope {
+        val bandStats = coroutineScope {
             (0 until bands).map { band ->
                 async {
+                    var maxEscape = 0
+                    var inside = 0
                     var row = band
                     while (row < h) {
                         ensureActive()
-                        val im = viewport.toIm(row * pixelStep + half, screenWidth, screenHeight)
+                        val dIm = -(row * pixelStep + half - screenHeight / 2.0) * scale
                         val offset = row * w
                         for (col in 0 until w) {
-                            val re = viewport.toRe(col * pixelStep + half, screenWidth, screenHeight)
-                            pixels[offset + col] = palette.colorFor(fractal.escapeValue(re, im, maxIter))
+                            val dRe = (col * pixelStep + half - screenWidth / 2.0) * scale
+                            val value = plan.escapeValue(dRe, dIm)
+                            if (value < 0) inside++ else if (value > maxEscape) maxEscape = value.toInt()
+                            pixels[offset + col] = palette.colorFor(value)
                         }
                         row += bands
                     }
+                    RenderStats(maxEscape, inside)
                 }
             }.awaitAll()
         }
+        val stats = RenderStats(bandStats.maxOf { it.maxEscape }, bandStats.sumOf { it.insideCount })
 
         val bitmap = Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
-        RenderedFrame(fractal, bitmap.asImageBitmap(), viewport, screenWidth, screenHeight, pixelStep)
+        RenderedFrame(fractal, bitmap.asImageBitmap(), viewport, screenWidth, screenHeight, pixelStep, stats)
     }
 }

@@ -34,13 +34,16 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.vibedev.app.fractal.CosinePalette
 import com.vibedev.app.fractal.FractalRenderer
+import com.vibedev.app.fractal.IterationPolicy
 import com.vibedev.app.fractal.RenderedFrame
 import com.vibedev.app.fractal.Viewport
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 // Coarse first so something shows quickly, then full detail.
-private val RENDER_PASSES = listOf(6, 2, 1)
+private const val COARSE_STEP = 6
+private val DETAIL_STEPS = listOf(2, 1)
 
 @Composable
 fun FractalExplorerScreen(
@@ -49,14 +52,27 @@ fun FractalExplorerScreen(
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
     var frame by remember { mutableStateOf<RenderedFrame?>(null) }
+    val iterationHints = remember { mutableMapOf<FractalMode, Int>() }
 
     val fractal = state.fractal
     val viewport = state.viewport
     LaunchedEffect(fractal, viewport, size) {
         if (frame?.fractal != fractal) frame = null // don't stretch a different fractal's picture
         if (size.width == 0 || size.height == 0) return@LaunchedEffect
-        for (step in RENDER_PASSES) {
-            frame = renderer.render(fractal, viewport, size.width, size.height, step)
+        val mode = state.mode
+        var budget = IterationPolicy.initial(viewport, iterationHints[mode])
+        var plan = fractal.plan(viewport, budget)
+        var coarse = renderer.render(fractal, plan, viewport, size.width, size.height, COARSE_STEP)
+        frame = coarse
+        while (true) {
+            budget = IterationPolicy.raised(budget, coarse.stats) ?: break
+            plan = fractal.plan(viewport, budget)
+            coarse = renderer.render(fractal, plan, viewport, size.width, size.height, COARSE_STEP)
+            frame = coarse
+        }
+        iterationHints[mode] = IterationPolicy.hintAfter(budget, coarse.stats)
+        for (step in DETAIL_STEPS) {
+            frame = renderer.render(fractal, plan, viewport, size.width, size.height, step)
         }
     }
 
@@ -101,12 +117,11 @@ private fun DrawScope.drawFrame(frame: RenderedFrame, current: Viewport) {
     val h = size.height.toInt()
     if (frame.screenWidth != w || frame.screenHeight != h) return
     val old = frame.viewport
-    val curScale = current.unitsPerPixel(w, h)
-    val ratio = old.unitsPerPixel(w, h) / curScale
-    val cornerRe = old.toRe(0.0, w, h)
-    val cornerIm = old.toIm(0.0, w, h)
-    val x = (cornerRe - current.centerRe) / curScale + w / 2.0
-    val y = -(cornerIm - current.centerIm) / curScale + h / 2.0
+    val ratio = old.unitsPerPixel(w, h) / current.unitsPerPixel(w, h)
+    val (cx, cy) = current.pixelOffsetOf(old, w, h)
+    val x = cx - w / 2.0 * ratio + w / 2.0
+    val y = cy - h / 2.0 * ratio + h / 2.0
+    if (abs(x) > 1e6 || abs(y) > 1e6 || ratio > 1e4) return // too far off to be useful
     val coveredW = frame.image.width * frame.pixelStep
     val coveredH = frame.image.height * frame.pixelStep
     drawImage(
@@ -130,7 +145,7 @@ private fun DrawScope.drawCrosshair() {
 private fun InfoLabel(state: ExplorerState, modifier: Modifier = Modifier) {
     val v = state.mandelbrotView
     val title = if (state.mode == FractalMode.MANDELBROT) "Mandelbrot set" else "Julia set"
-    val zoom = Viewport.MANDELBROT_HOME.span / state.viewport.span
+    val zoom = state.viewport.zoom()
     Column(
         modifier
             .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
@@ -139,7 +154,7 @@ private fun InfoLabel(state: ExplorerState, modifier: Modifier = Modifier) {
     ) {
         Text(title, color = Color.White)
         Text(
-            String.format(Locale.US, "c = %.10f %+.10fi", v.centerRe, v.centerIm),
+            String.format(Locale.US, "c = %.12f %+.12fi", v.centerRe.toDouble(), v.centerIm.toDouble()),
             color = Color.White.copy(alpha = 0.85f),
         )
         Text(String.format(Locale.US, "zoom ×%.3g", zoom), color = Color.White.copy(alpha = 0.7f))

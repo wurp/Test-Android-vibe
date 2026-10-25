@@ -10,6 +10,7 @@ import com.vibedev.app.fractal.Fractal
 import com.vibedev.app.fractal.JuliaFractal
 import com.vibedev.app.fractal.MandelbrotFractal
 import com.vibedev.app.fractal.Viewport
+import java.math.BigDecimal
 
 enum class FractalMode { MANDELBROT, JULIA }
 
@@ -60,15 +61,15 @@ class ExplorerState(
             save = {
                 listOf(
                     it.mode.ordinal,
-                    it.mandelbrotView.centerRe, it.mandelbrotView.centerIm, it.mandelbrotView.span,
-                    it.juliaView.centerRe, it.juliaView.centerIm, it.juliaView.span,
+                    it.mandelbrotView.centerRe.toString(), it.mandelbrotView.centerIm.toString(), it.mandelbrotView.span,
+                    it.juliaView.centerRe.toString(), it.juliaView.centerIm.toString(), it.juliaView.span,
                 )
             },
             restore = {
                 ExplorerState(
                     FractalMode.entries[it[0] as Int],
-                    Viewport(it[1] as Double, it[2] as Double, it[3] as Double),
-                    Viewport(it[4] as Double, it[5] as Double, it[6] as Double),
+                    Viewport(BigDecimal(it[1] as String), BigDecimal(it[2] as String), it[3] as Double),
+                    Viewport(BigDecimal(it[4] as String), BigDecimal(it[5] as String), it[6] as Double),
                 )
             },
         )
