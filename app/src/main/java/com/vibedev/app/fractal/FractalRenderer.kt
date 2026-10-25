@@ -22,7 +22,7 @@ class RenderedFrame(
 )
 
 /** Draws a prepared fractal into a bitmap using all CPU cores. Cancels promptly when the view changes. */
-class FractalRenderer(private val palette: ColorPalette) {
+class FractalRenderer {
 
     suspend fun render(
         fractal: Fractal,
@@ -31,6 +31,7 @@ class FractalRenderer(private val palette: ColorPalette) {
         screenWidth: Int,
         screenHeight: Int,
         pixelStep: Int,
+        palette: ColorPalette,
     ): RenderedFrame = withContext(Dispatchers.Default) {
         val w = (screenWidth + pixelStep - 1) / pixelStep
         val h = (screenHeight + pixelStep - 1) / pixelStep

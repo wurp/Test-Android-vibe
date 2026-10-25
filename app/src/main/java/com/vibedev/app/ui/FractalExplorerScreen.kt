@@ -21,6 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,9 +33,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.vibedev.app.fractal.CosinePalette
 import com.vibedev.app.fractal.FractalRenderer
 import com.vibedev.app.fractal.IterationPolicy
+import com.vibedev.app.fractal.PaletteChoice
 import com.vibedev.app.fractal.RenderedFrame
 import com.vibedev.app.fractal.Viewport
 import java.util.Locale
@@ -48,31 +49,33 @@ private val DETAIL_STEPS = listOf(2, 1)
 @Composable
 fun FractalExplorerScreen(
     state: ExplorerState = rememberExplorerState(),
-    renderer: FractalRenderer = remember { FractalRenderer(CosinePalette()) },
+    renderer: FractalRenderer = remember { FractalRenderer() },
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
     var frame by remember { mutableStateOf<RenderedFrame?>(null) }
     val iterationHints = remember { mutableMapOf<FractalMode, Int>() }
+    var paletteChoice by rememberSaveable { mutableStateOf(PaletteChoice.CLASSIC) }
 
     val fractal = state.fractal
     val viewport = state.viewport
-    LaunchedEffect(fractal, viewport, size) {
+    LaunchedEffect(fractal, viewport, size, paletteChoice) {
+        val palette = paletteChoice.palette
         if (frame?.fractal != fractal) frame = null // don't stretch a different fractal's picture
         if (size.width == 0 || size.height == 0) return@LaunchedEffect
         val mode = state.mode
         var budget = IterationPolicy.initial(viewport, iterationHints[mode])
         var plan = fractal.plan(viewport, budget)
-        var coarse = renderer.render(fractal, plan, viewport, size.width, size.height, COARSE_STEP)
+        var coarse = renderer.render(fractal, plan, viewport, size.width, size.height, COARSE_STEP, palette)
         frame = coarse
         while (true) {
             budget = IterationPolicy.raised(budget, coarse.stats) ?: break
             plan = fractal.plan(viewport, budget)
-            coarse = renderer.render(fractal, plan, viewport, size.width, size.height, COARSE_STEP)
+            coarse = renderer.render(fractal, plan, viewport, size.width, size.height, COARSE_STEP, palette)
             frame = coarse
         }
         iterationHints[mode] = IterationPolicy.hintAfter(budget, coarse.stats)
         for (step in DETAIL_STEPS) {
-            frame = renderer.render(fractal, plan, viewport, size.width, size.height, step)
+            frame = renderer.render(fractal, plan, viewport, size.width, size.height, step, palette)
         }
     }
 
@@ -104,8 +107,9 @@ fun FractalExplorerScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         ) {
             FilledTonalButton(onClick = state::resetView) { Text("Reset") }
+            FilledTonalButton(onClick = { paletteChoice = paletteChoice.next() }) { Text(paletteChoice.label) }
             Button(onClick = state::toggleMode) {
-                Text(if (state.mode == FractalMode.MANDELBROT) "Show Julia set" else "Back to Mandelbrot")
+                Text(if (state.mode == FractalMode.MANDELBROT) "Julia set" else "Mandelbrot")
             }
         }
     }
